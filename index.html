@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dolly Share - Seu Torrent Pessoal</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #222; color: #fff; text-align: center; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .card { background: #333; padding: 20px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #444; }
+        h2 { color: #00ffcc; }
+        input[type="file"] { margin: 10px 0; }
+        button { background: #00ffcc; color: #000; border: none; padding: 10px 20px; cursor: pointer; font-weight: bold; border-radius: 5px; }
+        button:hover { background: #00ccaa; }
+        #status { margin-top: 10px; color: #aaa; }
+        .hidden { display: none; }
+        .auth-box { border: 1px solid #555; padding: 10px; margin-bottom: 20px; background: #2a2a2a; }
+        input[type="text"], input[type="password"] { padding: 8px; width: 60%; margin: 5px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Dolly Share 🐑</h1>
+    <p>Converta arquivos para .dolly ou baixe arquivos usando .dolly</p>
+
+    <!-- ÁREA DE LOGIN -->
+    <div id="authArea" class="card">
+        <h2>Identificação</h2>
+        <div id="loginForm">
+            <input type="text" id="username" placeholder="Usuário">
+            <input type="password" id="password" placeholder="Senha">
+            <br>
+            <button onclick="fazerLogin()">Entrar</button>
+            <button onclick="fazerRegistro()" style="background: #555; color: #fff;">Criar Conta</button>
+        </div>
+        <div id="userInfo" class="hidden">
+            <p>Bem-vindo, <span id="displayUser" style="color: #00ffcc;"></span>!</p>
+            <p>Status: <span id="displayStatus"></span> | Cota usada: <span id="displayQuota"></span> / 500MB</p>
+            
+            <h3 style="margin-top: 15px; border-top: 1px solid #444; padding-top: 10px;">Meus Arquivos</h3>
+            <ul id="myFilesList" style="list-style: none; padding: 0; font-size: 0.9em; text-align: left;"></ul>
+            
+            <button onclick="fazerLogout()" style="background: #ff4444; color: white;">Sair</button>
+        </div>
+    </div>
+
+    <!-- ÁREA ADMIN (Só aparece se for admin) -->
+    <div id="adminArea" class="card hidden" style="border-color: #ff4444;">
+        <h2 style="color: #ff4444;">👑 Painel Admin</h2>
+        
+        <h3>Usuários Pendentes</h3>
+        <ul id="pendingList" style="list-style: none; padding: 0;"></ul>
+        
+        <h3>Gerenciar Usuários</h3>
+        <button onclick="carregarUsuarios()">Carregar Todos Usuários</button>
+        <ul id="usersList" style="list-style: none; padding: 0; margin-top: 10px;"></ul>
+
+        <h3>Gerenciar Arquivos</h3>
+        <button onclick="carregarArquivos()">Carregar Todos Arquivos</button>
+        <ul id="filesList" style="list-style: none; padding: 0; margin-top: 10px;"></ul>
+        
+    </div>
+
+    <!-- ÁREA 1: CRIAR .DOLLY -->
+    <div id="createArea" class="card hidden">
+        <h2>1. Criar Arquivo .dolly (Encriptado)</h2>
+        <p>Selecione um arquivo (vídeo, zip, pasta zipada) para gerar o link .dolly</p>
+        <input type="file" id="uploadInput">
+        <br>
+        <button onclick="criarDolly()">Gerar .dolly</button>
+    </div>
+
+    <!-- ÁREA 2: BAIXAR DO .DOLLY -->
+    <div class="card">
+        <h2>2. Baixar Conteúdo</h2>
+        <p>Arraste ou selecione um arquivo .dolly para baixar o original</p>
+        <input type="file" id="dollyInput" accept=".dolly">
+        <br>
+        <button onclick="usarDolly()">Baixar Arquivo Original</button>
+        <div id="downloadArea" class="hidden">
+            <p>Arquivo encontrado: <span id="fileName"></span></p>
+            <a id="finalLink" href="#" download><button>⬇️ INICIAR DOWNLOAD REAL</button></a>
+        </div>
+    </div>
+    
+    <div id="status"></div>
+</div>
+
+<script>
+    let currentUser = null;
+
+    async function fazerRegistro() {
+        const user = document.getElementById('username').value;
+        const pass = document.getElementById('password').value;
+        if(!user || !pass) return alert("Preencha tudo");
+
+        const res = await fetch('/register', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({username: user, password: pass})
+        });
+        const data = await res.json();
+        alert(data.message || data.error);
+    }
+
+    async function fazerLogin() {
+        const user = document.getElementById('username').value;
+        const pass = document.getElementById('password').value;
+        
+        const res = await fetch('/login', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({username: user, password: pass})
+        });
+        const data = await res.json();
+        
+        if(res.ok) {
+            currentUser = data.user;
+            atualizarUI();
+        } else {
+            alert(data.error);
+        }
+    }
+
+    async function fazerLogout() {
+        await fetch('/logout');
+        currentUser = null;
+        window.location.reload();
+    }
+
+    function atualizarUI() {
+        document.getElementById('loginForm').classList.add('hidden');
+        document.getElementById('userInfo').classList.remove('hidden');
+        document.getElementById('displayUser').innerText = currentUser.username;
+        
+        const status = currentUser.is_approved ? "Aprovado ✅" : "Pendente ⏳";
+        document.getElementById('displayStatus').innerText = status;
+        
+        const mbUsed = (currentUser.quota_used / 1024 / 1024).toFixed(2);
+        document.getElementById('displayQuota').innerText = mbUsed + " MB";
+
+        // Mostrar área de criação apenas se aprovado
+        if(currentUser.is_approved) {
+            document.getElementById('createArea').classList.remove('hidden');
+            carregarMeusArquivos();
+        }
+
+        // Mostrar admin se for admin
+        if(currentUser.is_admin) {
+            document.getElementById('adminArea').classList.remove('hidden');
+            carregarPendentes();
+            carregarUsuarios();
+            carregarArquivos();
+        }
+    }
+
+    async function carregarMeusArquivos() {
+        const res = await fetch('/my_files');
+        const files = await res.json();
+        const list = document.getElementById('myFilesList');
+        list.innerHTML = "";
+        if(files.length === 0) list.innerHTML = "<li>Nenhum arquivo enviado.</li>";
+        
+        files.forEach(f => {
+            list.innerHTML += `<li style="margin-bottom: 5px; display: flex; justify-content: space-between;">${f.filename} <button onclick="deletarArquivo('${f.hash}')" style="background: #ff4444; padding: 2px 8px; font-size: 0.8em;">🗑️</button></li>`;
+        });
+    }
+
+    async function carregarPendentes() {
+        const res = await fetch('/admin/pending_users');
+        const users = await res.json();
+        const list = document.getElementById('pendingList');
+        list.innerHTML = "";
+        users.forEach(u => {
+            list.innerHTML += `<li>${u.username} <button onclick="aprovar(${u.id})">Aprovar</button></li>`;
+        });
+    }
+
+    async function aprovar(id) {
+        await fetch('/admin/approve/' + id, {method: 'POST'});
+        carregarPendentes();
+    }
+
+    async function carregarUsuarios() {
+        const res = await fetch('/admin/users');
+        const users = await res.json();
+        const list = document.getElementById('usersList');
+        list.innerHTML = "";
+        users.forEach(u => {
+            const mb = (u.quota_used / 1024 / 1024).toFixed(1);
+            list.innerHTML += `
+                <li style="margin-bottom: 5px; border-bottom: 1px solid #444; padding: 5px;">
+                    ${u.username} (${mb} MB) - ${u.is_approved ? 'OK' : 'Pendente'}
+                    <button onclick="deletarUsuario(${u.id})" style="background: #ff4444; font-size: 0.8em; padding: 5px;">Excluir</button>
+                </li>`;
+        });
+    }
+
+    async function deletarUsuario(id) {
+        if(!confirm("Tem certeza? Isso apagará o usuário e TODOS os arquivos dele.")) return;
+        await fetch('/admin/delete_user/' + id, {method: 'DELETE'});
+        carregarUsuarios();
+        carregarArquivos(); // Atualiza arquivos pois os do usuário sumiram
+    }
+
+    async function carregarArquivos() {
+        const res = await fetch('/admin/files');
+        const files = await res.json();
+        const list = document.getElementById('filesList');
+        list.innerHTML = "";
+        files.forEach(f => {
+            list.innerHTML += `<li style="margin-bottom: 5px;">${f.filename} <button onclick="deletarArquivo('${f.hash}')" style="background: #ff4444; font-size: 0.8em; padding: 5px;">X</button></li>`;
+        });
+    }
+
+    async function deletarArquivo(hash) {
+        if(!confirm("Deletar este arquivo?")) return;
+        const res = await fetch('/delete_file/' + hash, {method: 'DELETE'});
+        const data = await res.json();
+        
+        if(res.ok) {
+            if(currentUser.is_admin) { carregarArquivos(); carregarUsuarios(); }
+            carregarMeusArquivos();
+            // Atualiza cota visualmente recarregando a página ou subtraindo manualmente
+            window.location.reload(); 
+        } else {
+            alert(data.error);
+        }
+    }
+
+    async function criarDolly() {
+        const fileInput = document.getElementById('uploadInput');
+        if(fileInput.files.length === 0) return alert("Selecione um arquivo primeiro!");
+
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+
+        document.getElementById('status').innerText = "Enviando e gerando hash...";
+
+        try {
+            const response = await fetch('/criar_dolly', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (response.ok) {
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                // O nome do arquivo será o original + .dolly
+                a.download = fileInput.files[0].name + ".dolly";
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                document.getElementById('status').innerText = "Arquivo .dolly gerado com sucesso!";
+                
+                // Atualiza cota visualmente (simples)
+                currentUser.quota_used += fileInput.files[0].size;
+                atualizarUI();
+            } else {
+                alert("Erro ao criar .dolly");
+            }
+        } catch (error) {
+            console.error(error);
+            alert("Erro de conexão.");
+        }
+    }
+
+    async function usarDolly() {
+        const dollyInput = document.getElementById('dollyInput');
+        if(dollyInput.files.length === 0) return alert("Selecione um arquivo .dolly!");
+
+        const formData = new FormData();
+        formData.append('dolly_file', dollyInput.files[0]);
+
+        try {
+            const response = await fetch('/ler_dolly', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const data = await response.json();
+
+            if (response.ok) {
+                document.getElementById('downloadArea').classList.remove('hidden');
+                document.getElementById('fileName').innerText = data.file_info.original_name;
+                document.getElementById('finalLink').href = data.download_url;
+                document.getElementById('status').innerText = "Metadados lidos. Pronto para baixar.";
+            } else {
+                alert("Erro: " + data.error);
+            }
+        } catch (error) {
+            console.error(error);
+            alert("Erro ao ler o arquivo .dolly");
+        }
+    }
+</script>
+
+</body>
+</html>
